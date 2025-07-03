@@ -1,0 +1,86 @@
+import streamlit as st
+import pandas as pd
+from docxtpl import DocxTemplate
+from io import BytesIO
+
+st.title("Pullspark Speaker Packet Generator")
+
+st.markdown("""
+Upload your completed **Onsite Packet (.xlsx)** and get a fully filled-in **Speaker Packet (.docx)** based on the official template.
+""")
+
+# Client uploads the Excel file
+excel_file = st.file_uploader("Upload Onsite Packet", type=["xlsx"])
+
+# Fixed Word template file (always stored locally)
+TEMPLATE_PATH = "APP TEST Speaker Packet Template.docx"
+
+def extract_context_from_excel(file):
+    # Read Event Details sheet (first tab)
+    sheet1 = pd.read_excel(file, sheet_name="Event Details", header=None)
+    sheet2 = pd.read_excel(file, sheet_name="Onsite Schedule")
+
+    # Turn Column A+B into key-value dictionary
+    kv = sheet1.set_index(0)[1].to_dict()
+
+    # Build context from mapped fields
+    context = {
+        "event_name": kv.get("Event Name", ""),
+        "dates": kv.get("Dates", ""),
+        "time": kv.get("Time", ""),
+        "location_name": kv.get("Location Name", ""),
+        "location_address": kv.get("Location Address", ""),
+        "event_audience_details": kv.get("Event Audience Details", kv.get("Evenet Audience Details", "")),  # handles typo
+        "expected_attendance": kv.get("Expected Attendance", ""),
+        "host_name_1": kv.get("Host Name 1", ""),
+        "cell_phone_1": kv.get("Cell Phone 1", ""),
+        "host_name_2": kv.get("Host Name 2", ""),
+        "cell_phone_2": kv.get("Cell Phone 2", ""),
+        "parking_details": kv.get("Parking Details", ""),
+        "event_producer_email": kv.get("Event Producer Email", ""),
+        "deadline": kv.get("Deadline", ""),
+        "stage_layout": kv.get("Stage Layout", ""),
+        "design": kv.get("Design", "")
+    }
+
+    # Clean and load schedule from second sheet
+    schedule_df = sheet2[sheet2["Time"].notna() & (sheet2["Time"] != "Time")]
+    context["schedule"] = schedule_df[["Time", "What", "Who"]].dropna(how='all').rename(
+        columns={"Time": "time", "What": "what", "Who": "who"}
+    ).to_dict(orient="records")
+ 
+    for item in context["schedule"]:
+        try:
+            if isinstance(item["time"], pd.Timestamp):
+                item["time"] = item["time"].strftime("%-I:%M %p").lstrip("0")
+            elif isinstance(item["time"], str) and item["time"].endswith(":00"):
+
+                from datetime import datetime
+                parsed_time = datetime.strptime(item["time"], "%H:%M:%S")
+                item["time"] = parsed_time.strftime("%-I:%M %p").lstrip("0")
+        except Exception:
+            pass 
+
+    return context
+
+if excel_file:
+    try:
+        context = extract_context_from_excel(excel_file)
+
+        doc = DocxTemplate(TEMPLATE_PATH)
+        doc.render(context)
+
+        output = BytesIO()
+        doc.save(output)
+        output.seek(0)
+
+        st.success("✅ Speaker Packet generated successfully!")
+        st.download_button(
+            label="📥 Download Speaker Packet (.docx)",
+            data=output,
+            file_name="Speaker_Packet.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")

@@ -30,7 +30,7 @@ def extract_context_from_excel(file, selected_speaker=None):
         "time": kv.get("Time", ""),
         "location_name": kv.get("Location Name", ""),
         "location_address": kv.get("Location Address", ""),
-        "event_audience_details": kv.get("Event Audience Details", kv.get("Evenet Audience Details", "")),  # handles typo
+        "event_audience_details": kv.get("Event Audience Details", kv.get("Evenet Audience Details", "")),
         "expected_attendance": kv.get("Expected Attendance", ""),
         "host_name_1": kv.get("Host Name 1", ""),
         "cell_phone_1": kv.get("Cell Phone 1", ""),
@@ -46,20 +46,20 @@ def extract_context_from_excel(file, selected_speaker=None):
     # Schedule
     schedule_df = sheet2[sheet2["Time"].notna() & (sheet2["Time"] != "Time")]
     schedule_df = schedule_df.dropna(how='all', subset=["Time", "What", "Who"])
-
-    # Rename and add fallback Speaker column
     schedule_df = schedule_df.rename(columns={"Time": "time", "What": "what", "Who": "who"})
-    if "Speaker" not in schedule_df.columns:
-        schedule_df["Speaker"] = "All"  # default to All if no column exists
 
-    # Filter schedule for selected speaker
-    if selected_speaker:
+    # Add fallback Speaker column
+    if "Speaker" not in schedule_df.columns:
+        schedule_df["Speaker"] = "All"
+
+    # Filter for selected speaker or include all
+    if selected_speaker and selected_speaker != "All Speakers":
         schedule_df = schedule_df[
             schedule_df["Speaker"].fillna("").str.lower().str.contains(selected_speaker.lower()) |
             schedule_df["Speaker"].fillna("").str.lower().str.contains("all")
         ]
 
-    # Format time column
+    # Format time values
     schedule = schedule_df[["time", "what", "who"]].to_dict(orient="records")
     for item in schedule:
         try:
@@ -75,16 +75,19 @@ def extract_context_from_excel(file, selected_speaker=None):
     context["schedule"] = schedule
     return context
 
+# Main UI flow
 if excel_file:
     try:
-        # Load speaker names from sheet
+        # Load speakers
         full_df = pd.read_excel(excel_file, sheet_name="Onsite Schedule")
         speakers_raw = full_df.get("Speaker", pd.Series(["All"])).dropna().unique()
-        speakers = [s.strip() for s in speakers_raw if str(s).lower() != "all"]
+        speakers = sorted(set([s.strip() for s in speakers_raw if str(s).strip() != ""]))
+        speakers.insert(0, "All Speakers")
 
-        # Ask user which speaker to generate packet for
+        # Dropdown
         selected_speaker = st.selectbox("Select a speaker to generate their packet:", speakers)
 
+        # Generate based on selection
         if selected_speaker:
             context = extract_context_from_excel(excel_file, selected_speaker)
 
@@ -99,7 +102,7 @@ if excel_file:
             st.download_button(
                 label="📥 Download Speaker Packet (.docx)",
                 data=output,
-                file_name=f"{selected_speaker}_Speaker_Packet.docx",
+                file_name=f"{selected_speaker.replace(' ', '_')}_Speaker_Packet.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
 

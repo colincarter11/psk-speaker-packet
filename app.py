@@ -80,9 +80,9 @@ if excel_file:
     try:
         # Load speakers
         full_df = pd.read_excel(excel_file, sheet_name="Onsite Schedule")
-        speakers_raw = full_df.get("Speaker", pd.Series(["All"])).dropna().unique()
-        speakers = sorted(set([s.strip() for s in speakers_raw if str(s).strip() != ""]))
-        speakers.insert(0, "All Speakers")
+        speakers_raw = full_df.get("Speaker", pd.Series()).dropna().unique()
+        speakers = sorted(set([s.strip() for s in speakers_raw if str(s).strip() != "all"]))
+        speakers = ["All Speakers"] + speakers
 
         # Dropdown
         selected_speaker = st.selectbox("Select a speaker to generate their packet:", speakers)

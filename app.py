@@ -15,7 +15,7 @@ excel_file = st.file_uploader("Upload Onsite Packet", type=["xlsx"])
 # Fixed Word template file (always stored locally)
 TEMPLATE_PATH = "APP TEST Speaker Packet Template.docx"
 
-def extract_context_from_excel(file):
+def extract_context_from_excel(file, selected_speaker=None):
     # Read Event Details sheet (first tab)
     sheet1 = pd.read_excel(file, sheet_name="Event Details", header=None)
     sheet2 = pd.read_excel(file, sheet_name="Onsite Schedule")
@@ -43,44 +43,65 @@ def extract_context_from_excel(file):
         "design": kv.get("Design", "")
     }
 
-    # Clean and load schedule from second sheet
+    # Schedule
     schedule_df = sheet2[sheet2["Time"].notna() & (sheet2["Time"] != "Time")]
-    context["schedule"] = schedule_df[["Time", "What", "Who"]].dropna(how='all').rename(
-        columns={"Time": "time", "What": "what", "Who": "who"}
-    ).to_dict(orient="records")
- 
-    for item in context["schedule"]:
+    schedule_df = schedule_df.dropna(how='all', subset=["Time", "What", "Who"])
+
+    # Rename and add fallback Speaker column
+    schedule_df = schedule_df.rename(columns={"Time": "time", "What": "what", "Who": "who"})
+    if "Speaker" not in schedule_df.columns:
+        schedule_df["Speaker"] = "All"  # default to All if no column exists
+
+    # Filter schedule for selected speaker
+    if selected_speaker:
+        schedule_df = schedule_df[
+            schedule_df["Speaker"].fillna("").str.lower().str.contains(selected_speaker.lower()) |
+            schedule_df["Speaker"].fillna("").str.lower().str.contains("all")
+        ]
+
+    # Format time column
+    schedule = schedule_df[["time", "what", "who"]].to_dict(orient="records")
+    for item in schedule:
         try:
             if isinstance(item["time"], pd.Timestamp):
                 item["time"] = item["time"].strftime("%-I:%M %p").lstrip("0")
             elif isinstance(item["time"], str) and item["time"].endswith(":00"):
-
                 from datetime import datetime
                 parsed_time = datetime.strptime(item["time"], "%H:%M:%S")
                 item["time"] = parsed_time.strftime("%-I:%M %p").lstrip("0")
         except Exception:
-            pass 
+            pass
 
+    context["schedule"] = schedule
     return context
 
 if excel_file:
     try:
-        context = extract_context_from_excel(excel_file)
+        # Load speaker names from sheet
+        full_df = pd.read_excel(excel_file, sheet_name="Onsite Schedule")
+        speakers_raw = full_df.get("Speaker", pd.Series(["All"])).dropna().unique()
+        speakers = [s.strip() for s in speakers_raw if str(s).lower() != "all"]
 
-        doc = DocxTemplate(TEMPLATE_PATH)
-        doc.render(context)
+        # Ask user which speaker to generate packet for
+        selected_speaker = st.selectbox("Select a speaker to generate their packet:", speakers)
 
-        output = BytesIO()
-        doc.save(output)
-        output.seek(0)
+        if selected_speaker:
+            context = extract_context_from_excel(excel_file, selected_speaker)
 
-        st.success("✅ Speaker Packet generated successfully!")
-        st.download_button(
-            label="📥 Download Speaker Packet (.docx)",
-            data=output,
-            file_name="Speaker_Packet.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
+            doc = DocxTemplate(TEMPLATE_PATH)
+            doc.render(context)
+
+            output = BytesIO()
+            doc.save(output)
+            output.seek(0)
+
+            st.success(f"✅ Speaker Packet generated for {selected_speaker}!")
+            st.download_button(
+                label="📥 Download Speaker Packet (.docx)",
+                data=output,
+                file_name=f"{selected_speaker}_Speaker_Packet.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
 
     except Exception as e:
         st.error(f"❌ Error: {str(e)}")
